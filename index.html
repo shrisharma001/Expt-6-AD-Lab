@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SentimentIQ — Neural Comment Analysis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+  --black: #050814;
+  --black-2: #0a1125;
+  --black-3: #101a38;
+  
+  --red: #00d4ff;                /* electric cyan */
+  --red-glow: rgba(0, 212, 255, 0.5);
+  --red-dark: #0099cc;
+  
+  --positive: #00ff9d;
+  --positive-glow: rgba(0, 255, 157, 0.3);
+  --negative: #ff3366;
+  --negative-glow: rgba(255, 51, 102, 0.35);
+  --neutral: #88aaff;
+  
+  --white: #e8f0ff;
+  --white-dim: rgba(232, 240, 255, 0.9);
+  --gray: #6b8cff;
+  --gray-light: #a3c0ff;
+}
+
+    @keyframes scanline {
+      0% { transform: translateY(-100%); }
+      100% { transform: translateY(100vh); }
+    }
+
+    @keyframes glow-pulse {
+      0%, 100% { box-shadow: 0 0 20px var(--red-glow), 0 0 40px var(--red-glow); }
+      50% { box-shadow: 0 0 30px var(--red-glow), 0 0 60px var(--red-glow); }
+    }
+
+    @keyframes slide-up {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes number-count {
+      from { opacity: 0; transform: scale(0.5); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    body {
+      font-family: var(--font-display);
+      background: var(--black);
+      color: var(--white);
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Scanline Effect */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(transparent, var(--red-glow), transparent);
+      animation: scanline 8s linear infinite;
+      pointer-events: none;
+      z-index: 1000;
+      opacity: 0.3;
+    }
+
+    /* Grain Texture */
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10, 10, 10, 0.95);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 0, 51, 0.2);
+    }
+
+    .nav-inner {
+      max-width: 100%;
+      padding: 20px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      font-size: 24px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-logo::before {
+      content: '◆';
+      color: var(--red);
+      font-size: 16px;
+      animation: glow-pulse 2s ease-in-out infinite;
+    }
+
+    .nav-logo span {
+      color: var(--red);
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--gray);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--positive);
+      box-shadow: 0 0 10px var(--positive-glow);
+      animation: glow-pulse 2s ease-in-out infinite;
+    }
+
+    /* HERO */
+    .hero {
+      padding: 80px 40px 60px;
+      text-align: center;
+      animation: fade-in 1s ease-out;
+    }
+
+    .hero h1 {
+      font-size: clamp(40px, 6vw, 72px);
+      font-weight: 700;
+      letter-spacing: -2px;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, var(--white) 0%, var(--gray-light) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: slide-up 0.8s ease-out;
+    }
+
+    .hero p {
+      font-size: 18px;
+      color: var(--gray-light);
+      margin-bottom: 40px;
+      font-weight: 300;
+      letter-spacing: 0.5px;
+      animation: slide-up 0.8s ease-out 0.2s both;
+    }
+
+    /* SEARCH CARD */
+    .search-card {
+      background: linear-gradient(135deg, var(--black-2) 0%, var(--black-3) 100%);
+      border: 1px solid rgba(255, 0, 51, 0.3);
+      border-radius: 0;
+      padding: 40px;
+      max-width: 1200px;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 0, 51, 0.5);
+      animation: slide-up 0.8s ease-out 0.4s both;
+    }
+
+    .search-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--red), transparent);
+      animation: glow-pulse 3s ease-in-out infinite;
+    }
+
+    .input-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      height: 60px;
+      padding: 0 24px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: var(--black);
+      color: var(--white);
+      font-size: 16px;
+      font-family: var(--font-mono);
+      outline: none;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--red);
+      box-shadow: 0 0 0 2px rgba(255, 0, 51, 0.2), inset 0 0 20px rgba(255, 0, 51, 0.05);
+    }
+
+    input[type="text"]::placeholder {
+      color: var(--gray);
+    }
+
+    .btn-analyze {
+      height: 60px;
+      padding: 0 40px;
+      border: 2px solid var(--red);
+      background: var(--red);
+      color: var(--white);
+      font-size: 14px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .btn-analyze::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+      transition: left 0.5s;
+    }
+
+    .btn-analyze:hover::before {
+      left: 100%;
+    }
+
+    .btn-analyze:hover:not(:disabled) {
+      background: transparent;
+      box-shadow: 0 0 20px var(--red-glow), inset 0 0 20px rgba(255, 0, 51, 0.2);
+      transform: translateY(-2px);
+    }
+
+    .btn-analyze:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .limit-wrap {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-top: 30px;
+      padding: 20px;
+      background: rgba(255, 0, 51, 0.05);
+      border: 1px solid rgba(255, 0, 51, 0.1);
+    }
+
+    .limit-wrap label {
+      font-size: 12px;
+      color: var(--gray-light);
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      white-space: nowrap;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.1);
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--red);
+      cursor: pointer;
+      box-shadow: 0 0 10px var(--red-glow);
+      transition: all 0.3s;
+    }
+
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.3);
+      box-shadow: 0 0 20px var(--red-glow);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      background: var(--red);
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 0 10px var(--red-glow);
+      transition: all 0.3s;
+    }
+
+    #limitVal {
+      font-weight: 600;
+      color: var(--red);
+      font-family: var(--font-mono);
+      font-size: 18px;
+      min-width: 60px;
+      text-align: right;
+    }
+
+    /* RESULTS */
+    .summary-bar {
+      max-width: 100%;
+      margin: 60px 40px;
+      display: none;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .summary-bar.visible {
+      display: grid;
+      animation: fade-in 0.6s ease-out;
+    }
+
+    .summary-pill {
+      background: var(--black-2);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 40px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .summary-pill::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      transition: all 0.4s;
+    }
+
+    .summary-pill:hover {
+      transform: translateY(-5px);
+      border-color: currentColor;
+    }
+
+    .summary-pill:nth-child(1)::before {
+      background: var(--positive);
+      box-shadow: 0 0 20px var(--positive-glow);
+    }
+
+    .summary-pill:nth-child(2)::before {
+      background: var(--negative);
+      box-shadow: 0 0 20px var(--negative-glow);
+    }
+
+    .summary-pill:nth-child(3)::before {
+      background: var(--neutral);
+    }
+
+    .pill-count {
+      font-size: 56px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      margin-bottom: 12px;
+      animation: number-count 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .pill-label {
+      font-size: 11px;
+      color: var(--gray);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      font-weight: 600;
+    }
+
+    .results-section {
+      max-width: 100%;
+      margin: 0 40px 80px;
+      display: none;
+    }
+
+    .results-section.visible {
+      display: block;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid rgba(255, 0, 51, 0.2);
+    }
+
+    .section-header h3 {
+      font-size: 24px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .comment-count {
+      font-size: 13px;
+      color: var(--gray);
+      font-family: var(--font-mono);
+    }
+
+    .comment-list {
+      display: grid;
+      gap: 16px;
+    }
+
+    .comment-card {
+      background: var(--black-2);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-left: 3px solid var(--gray);
+      padding: 24px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      opacity: 0;
+      animation: slide-up 0.4s ease-out forwards;
+    }
+
+    .comment-card:hover {
+      background: var(--black-3);
+      border-left-color: var(--red);
+      transform: translateX(8px);
+      box-shadow: -4px 0 20px rgba(255, 0, 51, 0.2);
+    }
+
+    .comment-card.positive { border-left-color: var(--positive); }
+    .comment-card.negative { border-left-color: var(--negative); }
+    .comment-card.neutral { border-left-color: var(--neutral); }
+
+    .comment-text {
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--white-dim);
+      margin-bottom: 16px;
+    }
+
+    .comment-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .sentiment-badge {
+      padding: 6px 14px;
+      border-radius: 2px;
+      font-size: 10px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border: 1px solid;
+    }
+
+    .sb-Positive {
+      background: rgba(0, 255, 136, 0.1);
+      color: var(--positive);
+      border-color: var(--positive);
+    }
+
+    .sb-Negative {
+      background: rgba(255, 0, 85, 0.1);
+      color: var(--negative);
+      border-color: var(--negative);
+    }
+
+    .sb-Neutral {
+      background: rgba(136, 136, 136, 0.1);
+      color: var(--neutral);
+      border-color: var(--neutral);
+    }
+
+    .score-display {
+      font-size: 11px;
+      color: var(--gray);
+      font-family: var(--font-mono);
+    }
+
+    /* ERROR & LOADING */
+    .error-box {
+      display: none;
+      background: rgba(255, 0, 51, 0.1);
+      color: var(--red);
+      padding: 20px;
+      margin: 30px auto;
+      max-width: 1200px;
+      border: 1px solid rgba(255, 0, 51, 0.3);
+      text-align: center;
+      font-size: 14px;
+      font-family: var(--font-mono);
+      animation: slide-up 0.4s ease-out;
+    }
+
+    .loading-state {
+      display: none;
+      text-align: center;
+      padding: 60px;
+      margin: 0 40px;
+    }
+
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--red);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-state p {
+      color: var(--gray-light);
+      font-size: 13px;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 768px) {
+      .nav-inner {
+        padding: 16px 20px;
+      }
+
+      .hero {
+        padding: 60px 20px 40px;
+      }
+
+      .search-card {
+        padding: 30px 20px;
+        margin: 0 20px;
+      }
+
+      .input-row {
+        grid-template-columns: 1fr;
+      }
+
+      .btn-analyze {
+        width: 100%;
+      }
+
+      .summary-bar {
+        margin: 40px 20px;
+        grid-template-columns: 1fr;
+      }
+
+      .results-section {
+        margin: 0 20px 60px;
+      }
+
+      .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo">Sentiment<span>IQ</span></div>
+    <div class="status-indicator">
+      <span class="status-dot"></span>
+      <span>System Online</span>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <section class="hero">
+    <h1>Analyze Audience Sentiment</h1>
+    <p>Neural network-powered comment analysis for YouTube videos</p>
+
+    <div class="search-card">
+      <div class="input-row">
+        <div class="input-wrap">
+          <input
+            type="text"
+            id="videoUrl"
+            placeholder="https://youtu.be/..."
+            onkeypress="if(event.key==='Enter') analyzeVideo()"
+          />
+        </div>
+        <button class="btn-analyze" id="analyzeBtn" onclick="analyzeVideo()">
+          Scan Comments
+        </button>
+      </div>
+      <div class="limit-wrap">
+        <label>Analysis Depth:</label>
+        <input
+          type="range"
+          id="limitRange"
+          min="20"
+          max="1000"
+          step="20"
+          value="100"
+          oninput="document.getElementById('limitVal').textContent=this.value"
+        >
+        <span id="limitVal">100</span>
+      </div>
+    </div>
+
+    <div class="error-box" id="errorBox"></div>
+  </section>
+
+  <div class="summary-bar" id="summaryBar">
+    <div class="summary-pill">
+      <div class="pill-count" id="countPos" style="color: var(--positive)">0</div>
+      <div class="pill-label">Positive</div>
+    </div>
+    <div class="summary-pill">
+      <div class="pill-count" id="countNeg" style="color: var(--negative)">0</div>
+      <div class="pill-label">Negative</div>
+    </div>
+    <div class="summary-pill">
+      <div class="pill-count" id="countNeu" style="color: var(--neutral)">0</div>
+      <div class="pill-label">Neutral</div>
+    </div>
+  </div>
+
+  <div class="loading-state" id="loadingState">
+    <div class="spinner"></div>
+    <p>Processing Neural Analysis...</p>
+  </div>
+
+  <section class="results-section" id="resultsSection">
+    <div class="section-header">
+      <h3>Analysis Results</h3>
+      <span class="comment-count" id="commentCount"></span>
+    </div>
+    <div class="comment-list" id="commentList"></div>
+  </section>
+</main>
+
+<script>
+  const API_BASE = "http://127.0.0.1:8000";
+
+  async function analyzeVideo() {
+    const url = document.getElementById('videoUrl').value.trim();
+    const limit = parseInt(document.getElementById('limitRange').value);
+
+    if (!url) {
+      showError("Please enter a valid YouTube URL.");
+      return;
+    }
+
+    if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+      showError("Please enter a valid YouTube URL.");
+      return;
+    }
+
+    // Reset UI
+    hideError();
+    document.getElementById('summaryBar').classList.remove('visible');
+    document.getElementById('resultsSection').classList.remove('visible');
+    document.getElementById('loadingState').style.display = 'block';
+    document.getElementById('analyzeBtn').disabled = true;
+    document.getElementById('analyzeBtn').textContent = 'ANALYZING...';
+
+    try {
+      const res = await fetch(`${API_BASE}/analyze_comments/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, limit }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.detail || "Failed to fetch comments.");
+      }
+
+      renderResults(data);
+    } catch (e) {
+      showError(e.message || "An error occurred while analyzing the video.");
+      console.error('Error:', e);
+    } finally {
+      document.getElementById('loadingState').style.display = 'none';
+      document.getElementById('analyzeBtn').disabled = false;
+      document.getElementById('analyzeBtn').textContent = 'SCAN COMMENTS';
+    }
+  }
+
+  function renderResults(comments) {
+    if (!comments || comments.length === 0) {
+      showError("No comments found for this video.");
+      return;
+    }
+
+    // Calculate sentiment counts
+    const pos = comments.filter(c => c.sentiment === 'Positive').length;
+    const neg = comments.filter(c => c.sentiment === 'Negative').length;
+    const neu = comments.filter(c => c.sentiment === 'Neutral').length;
+
+    // Animate numbers counting up
+    animateCount('countPos', pos);
+    animateCount('countNeg', neg);
+    animateCount('countNeu', neu);
+
+    document.getElementById('summaryBar').classList.add('visible');
+
+    // Update comment count
+    document.getElementById('commentCount').textContent =
+      `Showing ${Math.min(comments.length, 50)} of ${comments.length} comments`;
+
+    // Render comments
+    const list = document.getElementById('commentList');
+    list.innerHTML = '';
+
+    const commentsToShow = comments.slice(0, 50);
+
+    commentsToShow.forEach((comment, i) => {
+      const card = document.createElement('div');
+      card.className = `comment-card ${comment.sentiment.toLowerCase()}`;
+      card.style.animationDelay = `${i * 0.05}s`;
+
+      const polarityFormatted = comment.polarity >= 0
+        ? `+${comment.polarity}`
+        : comment.polarity;
+
+      card.innerHTML = `
+        <div class="comment-text">${escapeHtml(comment.text)}</div>
+        <div class="comment-meta">
+          <span class="sentiment-badge sb-${comment.sentiment}">${comment.sentiment}</span>
+          <span class="score-display">Polarity: ${polarityFormatted}</span>
+        </div>
+      `;
+      list.appendChild(card);
+    });
+
+    document.getElementById('resultsSection').classList.add('visible');
+
+    // Smooth scroll to results
+    setTimeout(() => {
+      document.getElementById('summaryBar').scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
+    }, 100);
+  }
+
+  function animateCount(elementId, target) {
+    const element = document.getElementById(elementId);
+    const duration = 1000;
+    const steps = 30;
+    const increment = target / steps;
+    let current = 0;
+
+    const timer = setInterval(() => {
+      current += increment;
+      if (current >= target) {
+        element.textContent = target;
+        clearInterval(timer);
+      } else {
+        element.textContent = Math.floor(current);
+      }
+    }, duration / steps);
+  }
+
+  function showError(msg) {
+    const err = document.getElementById('errorBox');
+    err.textContent = `⚠ ${msg}`;
+    err.style.display = 'block';
+
+    setTimeout(() => {
+      hideError();
+    }, 5000);
+  }
+
+  function hideError() {
+    document.getElementById('errorBox').style.display = 'none';
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Check API health on load
+  window.addEventListener('DOMContentLoaded', async () => {
+    try {
+      const res = await fetch(`${API_BASE}/health`);
+      const data = await res.json();
+      if (!data.youtube_api_configured) {
+        console.warn('YouTube API is not configured. Please set YOUTUBE_API_KEY environment variable.');
+      }
+    } catch (e) {
+      console.error('Could not connect to backend:', e);
+    }
+  });
+</script>
+
+</body>
+</html>
